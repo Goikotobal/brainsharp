@@ -39,7 +39,7 @@
         category: 'nature',
         difficulty: 'intermediate',
         emoji: '🏔️',
-        scenarioImage: '', // TODO: Add scenario setup image
+        scenarioImage: 'https://i.imgur.com/u14JmQW.png',
         situation: "You're hiking at 3,000m altitude when a sudden blizzard hits. Temperature is -15°C and dropping rapidly. Visibility is less than 10 meters, and it's 4:30 PM with sunset in 30 minutes.",
         context: {
           location: "Rocky Mountain Trail, 3,000m elevation",
@@ -66,7 +66,7 @@
             score: -50,
             explanation: "CRITICAL ERROR: Moving in a blizzard with poor visibility is extremely dangerous. You could easily get disoriented, fall off a cliff, or exhaust yourself. The cold and wind chill would accelerate hypothermia.",
             consequences: "High risk of fatal accident or severe hypothermia",
-            outcomeImage: '' // TODO: Add outcome image
+            outcomeImage: 'https://i.imgur.com/GzZ1IPv.png'
           },
           {
             id: 'b',
@@ -75,7 +75,7 @@
             score: 100,
             explanation: "CORRECT! This is the safest choice. Finding shelter immediately protects you from wind and snow. Use your body heat wisely, stay dry, and wait for conditions to improve. Most mountain rescue teams advise staying put in these conditions.",
             consequences: "Safe shelter, conserve energy, rescue likely in morning",
-            outcomeImage: '' // TODO: Add outcome image
+            outcomeImage: 'https://i.imgur.com/eYg29Cc.png'
           },
           {
             id: 'c',
@@ -84,7 +84,7 @@
             score: 60,
             explanation: "ACCEPTABLE: Calling for help is reasonable, but with only 20% battery and no signal, it may not work. Better to first find shelter, then try calling while conserving battery for potential signal later.",
             consequences: "May get help but battery drains quickly",
-            outcomeImage: '' // TODO: Add outcome image
+            outcomeImage: 'https://i.imgur.com/0QgIHZw.jpeg'
           },
           {
             id: 'd',
@@ -93,7 +93,7 @@
             score: 20,
             explanation: "RISKY: In a blizzard with 60 km/h winds, starting a fire is nearly impossible. Wet conditions and high winds make this impractical. You'd waste precious energy and resources. Focus on shelter first.",
             consequences: "Wastes time and energy, unlikely to succeed",
-            outcomeImage: '' // TODO: Add outcome image
+            outcomeImage: 'https://i.imgur.com/ps8Pnzv.png'
           }
         ],
         expertTip: "In mountain emergencies: Shelter > Fire > Signal. Always prioritize protection from elements."
@@ -664,12 +664,130 @@
       });
 
       const [availableScenarios, setAvailableScenarios] = useState([...SCENARIOS]);
+      const [audioState, setAudioState] = useState({
+        isPlaying: false,
+        isLoading: false,
+        audio: null
+      });
+
+      // ElevenLabs API key
+      const ELEVENLABS_API_KEY = 'sk_e3710b37617118a0ea8c02af212a4707b817a50a32096918';
+
+      // Voice IDs for different tones
+      const VOICES = {
+        antoni: 'ErXwobaYiN019PkySvjV',  // Authoritative male - scenarios, fatal outcomes
+        bella: 'EXAVITQu4vr4xnSDxMaL',   // Warm female - good outcomes
+        rachel: '21m00Tcm4TlvDq8ikWAM'   // Clear female - optimal outcomes
+      };
+
+      // Voice settings based on outcome type
+      const getVoiceSettings = (outcome) => {
+        switch (outcome) {
+          case 'fatal':
+            return {
+              voiceId: VOICES.antoni,
+              stability: 0.8,        // More stable = serious
+              similarity_boost: 0.6,
+              style: 0.3            // Lower style = somber
+            };
+          case 'poor':
+            return {
+              voiceId: VOICES.antoni,
+              stability: 0.6,
+              similarity_boost: 0.7,
+              style: 0.4            // Cautionary
+            };
+          case 'good':
+            return {
+              voiceId: VOICES.bella,
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0.6            // Encouraging
+            };
+          case 'optimal':
+            return {
+              voiceId: VOICES.rachel,
+              stability: 0.4,        // More expressive
+              similarity_boost: 0.8,
+              style: 0.8            // Excited, congratulatory
+            };
+          default: // scenario narration
+            return {
+              voiceId: VOICES.antoni,
+              stability: 0.5,
+              similarity_boost: 0.75,
+              style: 0.5
+            };
+        }
+      };
+
+      // Narrate with ElevenLabs - supports different voice/emotion based on outcome
+      const narrateText = async (text, outcome = null) => {
+        if (audioState.isPlaying && audioState.audio) {
+          audioState.audio.pause();
+          setAudioState({ isPlaying: false, isLoading: false, audio: null });
+          return;
+        }
+
+        setAudioState(prev => ({ ...prev, isLoading: true }));
+
+        const settings = getVoiceSettings(outcome);
+
+        try {
+          const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${settings.voiceId}`, {
+            method: 'POST',
+            headers: {
+              'Accept': 'audio/mpeg',
+              'Content-Type': 'application/json',
+              'xi-api-key': ELEVENLABS_API_KEY
+            },
+            body: JSON.stringify({
+              text: text,
+              model_id: 'eleven_monolingual_v1',
+              voice_settings: {
+                stability: settings.stability,
+                similarity_boost: settings.similarity_boost,
+                style: settings.style,
+                use_speaker_boost: true
+              }
+            })
+          });
+
+          if (!response.ok) throw new Error('TTS failed');
+
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+
+          audio.onended = () => {
+            setAudioState({ isPlaying: false, isLoading: false, audio: null });
+          };
+
+          audio.play();
+          setAudioState({ isPlaying: true, isLoading: false, audio });
+        } catch (error) {
+          console.error('Narration error:', error);
+          setAudioState({ isPlaying: false, isLoading: false, audio: null });
+        }
+      };
+
+      // Backward compatibility alias
+      const narrateScenario = (text) => narrateText(text, null);
+
+      // Stop audio when scenario changes
+      useEffect(() => {
+        if (audioState.audio) {
+          audioState.audio.pause();
+          setAudioState({ isPlaying: false, isLoading: false, audio: null });
+        }
+      }, [gameState.currentScenario?.id]);
 
       // Start new game
       const startNewGame = () => {
-        const randomScenario = availableScenarios[Math.floor(Math.random() * availableScenarios.length)];
+        // Use Mountain Blizzard as default for testing images
+        const startingScenario = SCENARIOS.find(s => s.id === 'mountain-blizzard') || availableScenarios[0];
         setGameState({
-          currentScenario: randomScenario,
+          currentScenario: startingScenario,
           selectedChoice: null,
           totalScore: 0,
           scenariosCompleted: 0,
@@ -931,7 +1049,7 @@
       // Result screen
       if (gameState.showResult && gameState.selectedChoice) {
         const choice = gameState.selectedChoice;
-        
+
         return (
           <div style={{
             minHeight: '100vh',
@@ -939,7 +1057,7 @@
             padding: '20px'
           }}>
             <div style={{
-              maxWidth: '800px',
+              maxWidth: '1000px',
               margin: '0 auto',
               color: 'white'
             }}>
@@ -972,16 +1090,20 @@
                 <div style={{
                   marginBottom: '20px',
                   borderRadius: '12px',
-                  overflow: 'hidden'
+                  overflow: 'hidden',
+                  background: '#000'
                 }}>
                   <img
                     src={choice.outcomeImage}
                     alt="Outcome"
                     style={{
                       width: '100%',
-                      height: '280px',
-                      objectFit: 'cover',
-                      display: 'block'
+                      height: 'auto',
+                      minHeight: '500px',
+                      maxHeight: '600px',
+                      objectFit: 'contain',
+                      display: 'block',
+                      margin: '0 auto'
                     }}
                   />
                 </div>
@@ -1018,8 +1140,48 @@
                 padding: '25px',
                 marginBottom: '20px'
               }}>
-                <div style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '15px' }}>
-                  📋 EXPERT ANALYSIS:
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '15px',
+                  flexWrap: 'wrap',
+                  gap: '10px'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#94a3b8' }}>
+                    📋 EXPERT ANALYSIS:
+                  </div>
+                  <button
+                    onClick={() => narrateText(
+                      `${choice.explanation} ${choice.consequences ? 'Consequences: ' + choice.consequences : ''}`,
+                      choice.outcome
+                    )}
+                    disabled={audioState.isLoading}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '13px',
+                      fontWeight: 'bold',
+                      background: audioState.isPlaying
+                        ? 'rgba(239, 68, 68, 0.8)'
+                        : getOutcomeColor(choice.outcome),
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: audioState.isLoading ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    {audioState.isLoading ? (
+                      <>⏳ Loading...</>
+                    ) : audioState.isPlaying ? (
+                      <>⏹️ Stop</>
+                    ) : (
+                      <>🔊 Listen to Analysis</>
+                    )}
+                  </button>
                 </div>
                 <div style={{ fontSize: '16px', lineHeight: '1.8', marginBottom: '15px' }}>
                   {choice.explanation}
@@ -1089,7 +1251,7 @@
           padding: '20px'
         }}>
           <div style={{
-            maxWidth: '900px',
+            maxWidth: '1000px',
             margin: '0 auto',
             color: 'white'
           }}>
@@ -1149,26 +1311,112 @@
 
               {scenario.scenarioImage && (
                 <div style={{
+                  position: 'relative',
                   marginBottom: '20px',
-                  borderRadius: '8px',
-                  overflow: 'hidden'
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  background: 'linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%)'
                 }}>
                   <img
                     src={scenario.scenarioImage}
                     alt={scenario.title}
                     style={{
                       width: '100%',
-                      height: '250px',
-                      objectFit: 'cover',
-                      display: 'block'
+                      height: 'auto',
+                      minHeight: '400px',
+                      maxHeight: '550px',
+                      objectFit: 'contain',
+                      display: 'block',
+                      margin: '0 auto'
                     }}
                   />
+                  {/* Cinematic text overlay */}
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.95))',
+                    padding: '60px 25px 25px 25px'
+                  }}>
+                    <p style={{
+                      fontSize: '17px',
+                      lineHeight: '1.7',
+                      margin: 0,
+                      color: '#fff',
+                      textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                      fontWeight: '400'
+                    }}>
+                      {scenario.situation}
+                    </p>
+                    {/* Listen button */}
+                    <button
+                      onClick={() => narrateScenario(scenario.situation)}
+                      disabled={audioState.isLoading}
+                      style={{
+                        marginTop: '15px',
+                        padding: '10px 20px',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        background: audioState.isPlaying
+                          ? 'rgba(239, 68, 68, 0.8)'
+                          : 'rgba(168, 85, 247, 0.8)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: audioState.isLoading ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {audioState.isLoading ? (
+                        <>⏳ Loading...</>
+                      ) : audioState.isPlaying ? (
+                        <>⏹️ Stop</>
+                      ) : (
+                        <>🔊 Listen</>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
 
-              <p style={{ fontSize: '16px', lineHeight: '1.8', margin: 0 }}>
-                {scenario.situation}
-              </p>
+              {!scenario.scenarioImage && (
+                <div style={{
+                  background: 'rgba(0,0,0,0.3)',
+                  borderRadius: '12px',
+                  padding: '25px',
+                  marginBottom: '20px'
+                }}>
+                  <p style={{ fontSize: '16px', lineHeight: '1.8', margin: 0 }}>
+                    {scenario.situation}
+                  </p>
+                  <button
+                    onClick={() => narrateScenario(scenario.situation)}
+                    disabled={audioState.isLoading}
+                    style={{
+                      marginTop: '15px',
+                      padding: '10px 20px',
+                      fontSize: '14px',
+                      fontWeight: 'bold',
+                      background: audioState.isPlaying
+                        ? 'rgba(239, 68, 68, 0.8)'
+                        : 'rgba(168, 85, 247, 0.8)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: audioState.isLoading ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    {audioState.isLoading ? '⏳ Loading...' : audioState.isPlaying ? '⏹️ Stop' : '🔊 Listen'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div style={{
